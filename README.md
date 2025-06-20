@@ -1,3 +1,38 @@
+## Building a release
+
+1. Launch an Ubuntu VM
+2. SSH into the VM
+3. Install requirements:
+
+```bash
+sudo apt update
+sudo apt upgrade
+sudo apt install git docker.io
+sudo usermod -aG docker ubuntu
+```
+
+4. Clone the repository
+
+```bash
+git clone https://github.com/CodeGra-de/firecracker
+cd firecracker
+```
+
+5. Enter the dev environment
+
+```bash
+./tools/devtool shell --priviliged
+```
+
+6. Build the firecracker release
+
+```bash
+./tools/release.sh --profile release --make-release
+tar zvcf firecracker-vX.X.X-x86_64.tgz release-vX.X.X-x86_64
+```
+
+## Original README
+
 <picture>
    <source media="(prefers-color-scheme: dark)" srcset="docs/images/fc_logo_full_transparent-bg_white-fg.png">
    <source media="(prefers-color-scheme: light)" srcset="docs/images/fc_logo_full_transparent-bg.png">
