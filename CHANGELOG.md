@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3]
+
+- [#5485](https://github.com/firecracker-microvm/firecracker/pull/5485): Fixed a
+  bug causing a read/write from an iovec to be duplicated when receiving an
+  error on an iovec other than the first. This caused a data corruption issue in
+  the vsock device starting from guest kernel 6.17.
+
 ## [1.6.2]
 
 - [#4796](https://github.com/firecracker-microvm/firecracker/pull/4796): Fixed
@@ -104,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - [#4261](https://github.com/firecracker-microvm/firecracker/pull/4261): Fixed
   a bug where Firecracker would log "RunWithApiError error: MicroVMStopped
   without an error: GenericError" when exiting after encountering an emulation
-  error. It now correctly prints "RunWithApiError error: MicroVMStopped *with* an
+  error. It now correctly prints "RunWithApiError error: MicroVMStopped _with_ an
   error: GenericError".
 - [#4242](https://github.com/firecracker-microvm/firecracker/pull/4242):
   Fixed a bug introduced in #4047 that limited the `--level` option of logger
@@ -146,7 +153,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Updated deserialization of `bitmap` for custom CPU templates to allow usage
-  of '_' as a separator.
+  of '\_' as a separator.
 - Changed the strip feature of `cpu-template-helper` tool to operate bitwise.
 - Better logs during validation of CPU ID in snapshot restoration path. Also
   Firecracker now does not fail if it can't get CPU ID from the host or
@@ -489,7 +496,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Fixed off-by-one error in virtio-block descriptor address validation.
 - Changed the `PATCH` request on `/balloon/statistics` to schedule the first
   statistics update immediately after processing the request.
-- Deprecated the `--seccomp-level parameter`. It will be removed  in a future
+- Deprecated the `--seccomp-level parameter`. It will be removed in a future
   release. Using it logs a runtime warning.
 - Experimental gnu libc builds use empty default seccomp filters, allowing all
   system calls.
@@ -883,7 +890,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   definition, and marked several other mandatory fields as such.
 - New default command line for guest kernel:
   `reboot=k panic=1 pci=off nomodules 8250.nr_uarts=0
-  i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd`.
+i8042.noaux i8042.nomux i8042.nopnp i8042.dumbkbd`.
 
 ### Fixed
 
@@ -1017,7 +1024,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The boot source is specified only with the `kernel_image_path` and
   the optional parameter `boot_args`. All other fields are removed.
 - The `path_on_host` property in the drive specification is now marked as
-  *mandatory*.
+  _mandatory_.
 - PATCH drive only allows patching/changing the `path_on_host` property.
 - All PUT and PATCH requests return the status code 204.
 - CPUID brand string (aka model name) now includes the host CPU frequency.
