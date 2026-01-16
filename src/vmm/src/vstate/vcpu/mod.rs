@@ -288,8 +288,8 @@ impl Vcpu {
                     .send(VcpuResponse::Paused)
                     .expect("vcpu channel unexpectedly closed");
 
-                // TODO: we should call `KVM_KVMCLOCK_CTRL` here to make sure
-                // TODO continued: the guest soft lockup watchdog does not panic on Resume.
+                #[cfg(target_arch = "x86_64")]
+                self.kvm_vcpu.kvmclock_ctrl();
 
                 // Move to 'paused' state.
                 state = StateMachine::next(Self::paused);
