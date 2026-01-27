@@ -279,6 +279,13 @@ impl Vcpu {
                 // - the other vCPUs won't ever exit out of `KVM_RUN`, but they won't consume CPU.
                 // So we pause vCPU0 and send a signal to the emulation thread to stop the VMM.
                 Ok(VcpuEmulation::Stopped) => return self.exit(FcExitCode::Ok),
+                // If the emulation requests a pause lets do this
+                #[cfg(feature = "gdb")]
+                Ok(VcpuEmulation::Paused) => {
+                    #[cfg(target_arch = "x86_64")]
+                    self.kvm_vcpu.kvmclock_ctrl();
+                    return StateMachine::next(Self::paused);
+                }
                 // Emulation errors lead to vCPU exit.
                 Err(_) => return self.exit(FcExitCode::GenericError),
             }
@@ -296,15 +303,8 @@ impl Vcpu {
                     .send(VcpuResponse::Paused)
                     .expect("failed to send pause status");
 
-                // Calling `KVM_KVMCLOCK_CTRL` to make sure the guest softlockup watchdog
-                // does not panic on resume, see https://docs.kernel.org/virt/kvm/api.html .
-                // We do not want to fail if the call is not successful, because depending
-                // that may be acceptable depending on the workload.
                 #[cfg(target_arch = "x86_64")]
-                if let Err(err) = self.kvm_vcpu.fd.kvmclock_ctrl() {
-                    METRICS.vcpu.kvmclock_ctrl_fails.inc();
-                    warn!("KVM_KVMCLOCK_CTRL call failed {}", err);
-                }
+                self.kvm_vcpu.kvmclock_ctrl();
 
                 // Move to 'paused' state.
                 state = StateMachine::next(Self::paused);
@@ -348,6 +348,13 @@ impl Vcpu {
         match self.event_receiver.recv() {
             // Paused ---- Resume ----> Running
             Ok(VcpuEvent::Resume) => {
+                if self.kvm_vcpu.fd.get_kvm_run().immediate_exit == 1u8 {
+                    warn!(
+                        "Received a VcpuEvent::Resume message with immediate_exit enabled. \
+                         immediate_exit was disabled before proceeding"
+                    );
+                    self.kvm_vcpu.fd.set_kvm_immediate_exit(0);
+                }
                 // Nothing special to do.
                 self.response_sender
                     .send(VcpuResponse::Resumed)
