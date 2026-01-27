@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [1.6.3]
+- [#5494](https://github.com/firecracker-microvm/firecracker/pull/5494): Fixed a
+  watchdog soft lockup bug on microVMs restored from snapshots by calling
+  KVM_KVMCLOCK_CTRL ioctl before resuming.
+
+- [#4460]: Add a call to KVM_KVMCLOCK_CTRL after pausing vCPUs on x86_64
+  architectures. This ioctl sets a flag in the KVM state of the vCPU indicating
+  that it has been paused by the host userspace. In guests that use kvmclock, the
+  soft lockup watchdog checks this flag. If it is set, it won't trigger the lockup
+  condition. Calling the ioctl for guests that don't use kvmclock will fail. These
+  failures are not fatal. We log the failure and increase the
+  vcpu.kvmclock_ctrl_fails metric.
 
 - [#5485](https://github.com/firecracker-microvm/firecracker/pull/5485): Fixed a
   bug causing a read/write from an iovec to be duplicated when receiving an
