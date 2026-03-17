@@ -50,7 +50,7 @@ use crate::devices::virtio::net::Net;
 use crate::devices::virtio::rng::Entropy;
 use crate::devices::virtio::vsock::{Vsock, VsockUnixBackend};
 use crate::devices::BusDevice;
-use crate::logger::{debug, error};
+use crate::logger::{debug, error, warn};
 use crate::persist::{MicrovmState, MicrovmStateError};
 use crate::resources::VmResources;
 use crate::vmm_config::boot_source::BootConfig;
@@ -58,7 +58,7 @@ use crate::vmm_config::drive::BlockDeviceType;
 use crate::vmm_config::instance_info::InstanceInfo;
 use crate::vmm_config::machine_config::{MachineConfigUpdate, VmConfig, VmConfigError};
 use crate::vstate::memory::{
-    create_memfd, GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap,
+    create_memfd, Bytes, GuestAddress, GuestMemory, GuestMemoryExtension, GuestMemoryMmap,
 };
 use crate::vstate::vcpu::{Vcpu, VcpuConfig};
 use crate::vstate::vm::Vm;
@@ -458,6 +458,42 @@ pub fn build_microvm_from_snapshot(
         vmm.vm.restore_state(&mpidrs, &microvm_state.vm_state)?;
     }
 
+    // Restore vcpus kvm state (x86_64).
+    //
+    // Two issues require fixups after restoring vCPU/VM state on x86_64:
+    //
+    // 1. KVM_CLOCK_REALTIME (cleared in vm.rs restore_state): if the saved
+    //    kvm_clock_data had this flag set, KVM_SET_CLOCK would shift kvmclock_offset
+    //    by (now_real - snapshot_realtime), advancing system_time by the full elapsed
+    //    wall-clock age of the snapshot. Every hrtimer in the guest would then expire
+    //    at once → 100% CPU storm. vm.rs clears the flag before calling set_clock.
+    //
+    // 2. pvclock_wall_clock clobbered by MSR restore: KVM_SET_MSRS for
+    //    MSR_KVM_WALL_CLOCK_NEW triggers kvm_write_wall_clock, which overwrites the
+    //    GPA with (ktime_get_real_ns() - get_kvmclock_ns()), using the current host
+    //    clock — completely wrong for the guest. When PVCLOCK_GUEST_STOPPED is later
+    //    processed, the guest calls timekeeping_inject_sleeptime64(new_wall - old_wall).
+    //    If new_wall differs from the snapshot value, sleep_delta can be huge → storm.
+    //    Fix: save the snapshot value before MSR restore, write it back after.
+
+    // Save pvclock_wall_clock (sec, nsec) from snapshot guest memory before MSR restore.
+    #[cfg(target_arch = "x86_64")]
+    let pvclock_wall_clock_snapshot = {
+        const MSR_KVM_WALL_CLOCK_NEW: u32 = 0x4b564d00;
+        microvm_state.vcpu_states.first().and_then(|state| {
+            let gpa = state
+                .saved_msrs
+                .iter()
+                .flat_map(|m| m.as_slice())
+                .find(|e| e.index == MSR_KVM_WALL_CLOCK_NEW)
+                .map(|e| e.data)
+                .filter(|&g| g != 0)?;
+            let sec  = guest_memory.read_obj::<u32>(GuestAddress(gpa + 4)).ok()?;
+            let nsec = guest_memory.read_obj::<u32>(GuestAddress(gpa + 8)).ok()?;
+            Some((gpa, sec, nsec))
+        })
+    };
+
     #[cfg(target_arch = "x86_64")]
     for (vcpu, state) in vcpus.iter_mut().zip(microvm_state.vcpu_states.iter()) {
         vcpu.kvm_vcpu
@@ -467,9 +503,31 @@ pub fn build_microvm_from_snapshot(
             .map_err(BuildMicrovmFromSnapshotError::RestoreVcpus)?;
     }
 
-    // Restore kvm vm state.
+    // Restore kvm vm state (clears KVM_CLOCK_REALTIME — see comment above).
     #[cfg(target_arch = "x86_64")]
     vmm.vm.restore_state(&microvm_state.vm_state)?;
+
+    // Restore pvclock_wall_clock to its snapshot value, undoing what KVM_SET_MSRS wrote.
+    // struct pvclock_wall_clock layout: u32 version @ +0, u32 sec @ +4, u32 nsec @ +8.
+    #[cfg(target_arch = "x86_64")]
+    if let Some((gpa, snap_sec, snap_nsec)) = pvclock_wall_clock_snapshot {
+        match guest_memory.read_obj::<u32>(GuestAddress(gpa)) {
+            Ok(version) => {
+                let ver_in_progress = if version & 1 == 0 { version + 1 } else { version + 2 };
+                let ver_done = ver_in_progress + 1;
+                let _ = guest_memory.write_obj(ver_in_progress, GuestAddress(gpa));
+                let _ = guest_memory.write_obj(snap_sec,  GuestAddress(gpa + 4));
+                let _ = guest_memory.write_obj(snap_nsec, GuestAddress(gpa + 8));
+                let _ = guest_memory.write_obj(ver_done,  GuestAddress(gpa));
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to restore pvclock_wall_clock at GPA {:#x}: {}",
+                    gpa, e
+                );
+            }
+        }
+    }
 
     vm_resources.update_vm_config(&MachineConfigUpdate {
         vcpu_count: Some(vcpu_count),

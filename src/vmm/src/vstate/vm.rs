@@ -368,8 +368,19 @@ impl Vm {
         self.fd
             .set_pit2(&state.pitstate)
             .map_err(RestoreStateError::SetPit2)?;
+
+        // KVM_CLOCK_REALTIME (bit 2) tells KVM_SET_CLOCK to adjust kvmclock_offset by
+        // (now_real - snapshot_realtime), shifting system_time forward by the full age
+        // of the snapshot. For an old snapshot this instantly expires every guest hrtimer
+        // → 100% CPU storm. Clear it so KVM uses the simple restore path:
+        //   kvmclock_offset = saved_clock - get_kvmclock_base_ns()
+        // which sets system_time back to exactly the snapshot value.
+        // (KVM_CLOCK_TSC_STABLE is already cleared by save_state.)
+        const KVM_CLOCK_REALTIME: u32 = 1 << 2;
+        let mut clock = state.clock;
+        clock.flags &= !KVM_CLOCK_REALTIME;
         self.fd
-            .set_clock(&state.clock)
+            .set_clock(&clock)
             .map_err(RestoreStateError::SetClock)?;
         self.fd
             .set_irqchip(&state.pic_master)
@@ -459,6 +470,11 @@ pub struct VmState {
 impl VmState {
     fn default_caps(_: u16) -> Vec<KvmCapability> {
         Vec::default()
+    }
+
+    /// Returns the kvmclock value saved at snapshot time (nanoseconds, VM monotonic).
+    pub fn kvmclock_ns(&self) -> u64 {
+        self.clock.clock
     }
 }
 
