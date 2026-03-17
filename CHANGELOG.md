@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4]
+
+- Fixed a bug causing microVMs restored from old snapshots to hang at 100% CPU
+  and become completely unreachable. When the host kernel supports
+  `KVM_CAP_ADJUST_CLOCK`, `KVM_GET_CLOCK` returns the `KVM_CLOCK_REALTIME` flag
+  in the saved `kvm_clock_data`. If this flag is passed back through
+  `KVM_SET_CLOCK` on restore, KVM shifts `kvmclock_offset` forward by the full
+  wall-clock age of the snapshot (e.g. 77 days), causing every guest hrtimer to
+  expire simultaneously and producing an unrecoverable hrtimer storm. The fix
+  clears `KVM_CLOCK_REALTIME` before calling `KVM_SET_CLOCK`, so the guest
+  monotonic clock is restored to exactly the snapshot value regardless of how
+  long ago the snapshot was taken.
+
+- Fixed a secondary issue where restoring `MSR_KVM_WALL_CLOCK_NEW` via
+  `KVM_SET_MSRS` caused KVM to overwrite `pvclock_wall_clock` in guest memory
+  with an incorrect value derived from the current host clock. This could
+  produce a large sleep delta when `PVCLOCK_GUEST_STOPPED` was processed,
+  triggering a second hrtimer storm path. The fix saves the snapshot value of
+  `pvclock_wall_clock` before MSR restore and writes it back afterward.
+
 ## [1.6.3]
 - [#5494](https://github.com/firecracker-microvm/firecracker/pull/5494): Fixed a
   watchdog soft lockup bug on microVMs restored from snapshots by calling
