@@ -479,6 +479,9 @@ pub fn build_microvm_from_snapshot(
     // Save pvclock_wall_clock (sec, nsec) from snapshot guest memory before MSR restore.
     #[cfg(target_arch = "x86_64")]
     let pvclock_wall_clock_snapshot = {
+        // MSR_KVM_WALL_CLOCK_NEW: guest writes the GPA of its pvclock_wall_clock struct
+        // to this MSR; KVM then writes (ktime_get_real_ns() - get_kvmclock_ns()) there.
+        // https://docs.kernel.org/virt/kvm/x86/msr.html
         const MSR_KVM_WALL_CLOCK_NEW: u32 = 0x4b564d00;
         microvm_state.vcpu_states.first().and_then(|state| {
             let gpa = state

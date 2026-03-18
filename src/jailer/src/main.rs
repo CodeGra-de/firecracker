@@ -345,16 +345,8 @@ fn main() -> Result<(), JailerError> {
 }
 
 fn main_exec() -> Result<(), JailerError> {
-    // Save FC_SNAPSHOT_REALTIME_NS before sanitize_process clears all env vars,
-    // so it survives into the exec'd Firecracker process.
-    let snapshot_realtime_ns = p_env::var("FC_SNAPSHOT_REALTIME_NS").ok();
-
     sanitize_process()
         .unwrap_or_else(|err| panic!("Failed to sanitize the Jailer process: {}", err));
-
-    if let Some(val) = snapshot_realtime_ns {
-        p_env::set_var("FC_SNAPSHOT_REALTIME_NS", val);
-    }
 
     let mut arg_parser = build_arg_parser();
     arg_parser
