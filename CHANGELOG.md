@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.5]
+
+- Removed leftover `FC_SNAPSHOT_REALTIME_NS` environment variable handling from
+  the jailer. This was part of an earlier investigation into the snapshot restore
+  hang and was not cleaned up before the 1.6.4 release.
+
 ## [1.6.4]
 
 - Fixed a bug causing microVMs restored from old snapshots to hang at 100% CPU
