@@ -172,19 +172,46 @@ impl MmioTransport {
     #[allow(unused_assignments)]
     fn set_device_status(&mut self, status: u32) {
         use device_status::*;
-        // match changed bits
-        match !self.device_status & status {
-            ACKNOWLEDGE if self.device_status == INIT => {
-                self.device_status = status;
+
+        const VALID_TRANSITIONS: &[(u32, u32)] = &[
+            (INIT, ACKNOWLEDGE),
+            (ACKNOWLEDGE, ACKNOWLEDGE | DRIVER),
+            (ACKNOWLEDGE | DRIVER, ACKNOWLEDGE | DRIVER | FEATURES_OK),
+            (
+                ACKNOWLEDGE | DRIVER | FEATURES_OK,
+                ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK,
+            ),
+        ];
+
+        if (status & FAILED) != 0 {
+            // TODO: notify backend driver to stop the device
+            self.device_status |= FAILED;
+        } else if status == INIT {
+            if self.locked_device().is_activated() {
+                let mut device_status = self.device_status;
+                let reset_result = self.locked_device().reset();
+                match reset_result {
+                    Some((_interrupt_evt, mut _queue_evts)) => {}
+                    None => {
+                        device_status |= FAILED;
+                    }
+                }
+                self.device_status = device_status;
             }
-            DRIVER if self.device_status == ACKNOWLEDGE => {
-                self.device_status = status;
+
+            // If the backend device driver doesn't support reset,
+            // just leave the device marked as FAILED.
+            if self.device_status & FAILED == 0 {
+                self.reset();
             }
-            FEATURES_OK if self.device_status == (ACKNOWLEDGE | DRIVER) => {
-                self.device_status = status;
-            }
-            DRIVER_OK if self.device_status == (ACKNOWLEDGE | DRIVER | FEATURES_OK) => {
-                self.device_status = status;
+        } else if VALID_TRANSITIONS
+            .iter()
+            .any(|&(from, to)| self.device_status == from && status == to)
+        {
+            self.device_status = status;
+
+            // Activate the device when transitioning to DRIVER_OK.
+            if status == (ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK) {
                 let device_activated = self.locked_device().is_activated();
                 if !device_activated && self.are_queues_valid() {
                     self.locked_device()
@@ -192,35 +219,11 @@ impl MmioTransport {
                         .expect("Failed to activate device");
                 }
             }
-            _ if (status & FAILED) != 0 => {
-                // TODO: notify backend driver to stop the device
-                self.device_status |= FAILED;
-            }
-            _ if status == 0 => {
-                if self.locked_device().is_activated() {
-                    let mut device_status = self.device_status;
-                    let reset_result = self.locked_device().reset();
-                    match reset_result {
-                        Some((_interrupt_evt, mut _queue_evts)) => {}
-                        None => {
-                            device_status |= FAILED;
-                        }
-                    }
-                    self.device_status = device_status;
-                }
-
-                // If the backend device driver doesn't support reset,
-                // just leave the device marked as FAILED.
-                if self.device_status & FAILED == 0 {
-                    self.reset();
-                }
-            }
-            _ => {
-                warn!(
-                    "invalid virtio driver status transition: 0x{:x} -> 0x{:x}",
-                    self.device_status, status
-                );
-            }
+        } else {
+            warn!(
+                "invalid virtio driver status transition: {:#x} -> {:#x}",
+                self.device_status, status
+            );
         }
     }
 }
