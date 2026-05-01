@@ -23,6 +23,13 @@ use crate::vstate::memory::GuestMemoryMmap;
 
 pub const ENTROPY_DEV_ID: &str = "rng";
 
+// Cap the per-request entropy allocation. A guest can craft a virtio
+// descriptor chain whose total `iovec.len()` is the sum of many overlapping
+// descriptors, reaching multi-GiB sizes from a small guest memory and
+// exhausting host RAM. The guest still gets up to this many bytes of entropy
+// per request.
+const MAX_ENTROPY_BYTES: u32 = 64 * 1024;
+
 #[derive(Debug, thiserror::Error, displaydoc::Display)]
 pub enum EntropyError {
     /// Error while handling an Event file descriptor: {0}
@@ -112,15 +119,17 @@ impl Entropy {
             return Ok(0);
         }
 
-        let mut rand_bytes = vec![0; iovec.len()];
+        let len = std::cmp::min(iovec.len(), MAX_ENTROPY_BYTES as usize);
+        let mut rand_bytes = vec![0; len];
         rand::fill(&mut rand_bytes).map_err(|err| {
             METRICS.host_rng_fails.inc();
             err
         })?;
 
-        // It is ok to unwrap here. We are writing `iovec.len()` bytes at offset 0.
+        // We are writing at most `iovec.len()` bytes starting at offset 0.
         iovec.write_all_volatile_at(&rand_bytes, 0).unwrap();
-        Ok(iovec.len().try_into().unwrap())
+        // `len` fits in u32: bounded above by MAX_ENTROPY_BYTES (64 KiB).
+        Ok(len.try_into().unwrap())
     }
 
     fn process_entropy_queue(&mut self) {
